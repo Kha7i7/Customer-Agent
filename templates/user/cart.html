@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}购物车 · 星选商城{% endblock %}
+{% block content %}
+<h1>购物车</h1>
+<p class="muted small">不同店铺的商品会自动拆成多张订单，分别由对应商家发货</p>
+
+{% if items %}
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>商品</th><th>店铺</th><th>单价</th><th>数量</th><th>小计</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for item in items %}
+        <tr>
+          <td><a href="/products/{{ item.product_id }}">{{ item.product.name }}</a></td>
+          <td class="muted">{{ item.product.shop.name if item.product.shop else '-' }}</td>
+          <td>¥{{ '%.2f'|format(item.product.price) }}</td>
+          <td>{{ item.quantity }}</td>
+          <td class="price sm">¥{{ '%.2f'|format(item.product.price * item.quantity) }}</td>
+          <td>
+            <form method="post" action="/cart/remove">
+              <input type="hidden" name="item_id" value="{{ item.id }}">
+              <button class="btn danger small" type="submit">删除</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="order-foot">
+    <span class="total">商品合计：<b>¥{{ '%.2f'|format(total) }}</b></span>
+  </div>
+</div>
+
+<div class="card">
+  <h2>填写收货信息</h2>
+  <form method="post" action="/checkout">
+    <div class="form-row">
+      <div class="field">
+        <label>收货人</label>
+        <input type="text" name="receiver_name" required value="{{ user.username }}">
+      </div>
+      <div class="field">
+        <label>联系电话</label>
+        <input type="text" name="receiver_phone" required value="{{ user.phone or '' }}" placeholder="11 位手机号">
+      </div>
+    </div>
+    <div class="field">
+      <label>收货地址</label>
+      <input type="text" name="address" required value="{{ user.address or '' }}" placeholder="省 / 市 / 区 / 详细地址">
+    </div>
+    <button class="btn primary" type="submit">提交订单（¥{{ '%.2f'|format(total) }}）</button>
+  </form>
+</div>
+{% else %}
+<div class="card">
+  <div class="empty">购物车还是空的，去<a href="/products">逛逛商品</a>吧</div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ product.name }} · 星选商城{% endblock %}
+{% block content %}
+<p class="small"><a href="/products">← 返回商品列表</a></p>
+
+<div class="card">
+  <div class="page-head">
+    <div>
+      <h1>{{ product.name }}</h1>
+      <p class="muted small">{{ product.category }} · {{ product.shop.name if product.shop else '未知店铺' }}</p>
+    </div>
+    <div class="price lg">¥{{ '%.2f'|format(product.price) }}</div>
+  </div>
+
+  <p class="desc-body">{{ product.description or '暂无商品描述' }}</p>
+
+  <div class="kv"><span>库存</span><span>{{ product.stock }} 件</span></div>
+  <div class="kv"><span>上架状态</span><span>在售</span></div>
+
+  <form method="post" action="/cart/add" class="form-row buy-form">
+    <div class="field">
+      <label>购买数量</label>
+      <input type="number" name="quantity" value="1" min="1" max="{{ product.stock }}">
+    </div>
+    <input type="hidden" name="product_id" value="{{ product.id }}">
+    <button class="btn primary" type="submit" {% if product.stock <= 0 %}disabled{% endif %}>
+      {% if product.stock > 0 %}加入购物车{% else %}已售罄{% endif %}
+    </button>
+    <a class="btn" href="/cart">去购物车结算</a>
+  </form>
+</div>
+{% endblock %}

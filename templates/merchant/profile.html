@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}个人中心 · 星选商城{% endblock %}
+{% block content %}
+<h1>个人中心</h1>
+<p class="muted small">{{ shop.name }} · 店铺经营概况与账号资料</p>
+
+<div class="grid cols-4 stat-row">
+  <div class="stat"><div class="label">在售商品</div><div class="value">{{ product_count }}</div></div>
+  <div class="stat"><div class="label">累计订单</div><div class="value">{{ order_count }}</div></div>
+  <div class="stat"><div class="label">成交金额</div><div class="value">¥{{ '%.2f'|format(sales) }}</div></div>
+  <div class="stat"><div class="label">客服均分</div><div class="value">{{ '%.1f'|format(avg_rating) }}<small> / 5</small></div></div>
+</div>
+
+<div class="card profile-card">
+  <h2>店铺资料</h2>
+  <p class="muted small">店铺名称会展示在用户端商品与订单页面，用户也可以在客服会话中看到店铺客服名称</p>
+  <form method="post" action="/merchant/profile">
+    <div class="form-row">
+      <div class="field">
+        <label>店铺名称</label>
+        <input type="text" name="shop_name" value="{{ shop.name }}" maxlength="60">
+      </div>
+      <div class="field">
+        <label>联系电话</label>
+        <input type="text" name="phone" value="{{ user.phone or '' }}">
+      </div>
+    </div>
+    <div class="field">
+      <label>店铺简介</label>
+      <input type="text" name="description" value="{{ shop.description or '' }}" placeholder="一句话介绍你的店铺">
+    </div>
+    <button class="btn primary" type="submit">保存资料</button>
+    <a class="btn" href="/merchant/agent">配置客服 Agent</a>
+  </form>
+</div>
+
+<div class="card">
+  <h2>账号信息</h2>
+  <div class="kv"><span>登录账号</span><span>{{ user.username }}</span></div>
+  <div class="kv"><span>角色</span><span>{{ ROLE_LABELS.get(user.role, user.role) }}</span></div>
+  <div class="kv"><span>店铺 ID</span><span>{{ shop.id }}</span></div>
+  <div class="kv"><span>注册时间</span><span>{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}</span></div>
+  <div class="kv"><span>账号状态</span><span>{{ '正常' if user.status == 'active' else '已禁用' }}</span></div>
+</div>
+{% endblock %}

@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}在线客服 · 星选商城{% endblock %}
+{% block main_class %}chat-shell{% endblock %}
+{% block content %}
+<aside class="chat-side">
+  <form method="post" action="/chat/new">
+    <button class="btn primary block" type="submit">新建会话</button>
+  </form>
+  <div class="side-label">会话记录</div>
+  <div class="conv-list">
+    {% for c in conversations %}
+    <div class="conv-row">
+      <a class="conv-item {% if current and c.id == current.id %}active{% endif %}" href="/chat?session_id={{ c.session_id }}">
+        <div class="conv-topic">{{ c.topic or '新的会话' }}</div>
+        <span class="badge {{ c.status }}">{{ CONV_STATUS_LABELS.get(c.status, c.status) }}</span>
+      </a>
+      <form method="post" action="/chat/{{ c.session_id }}/delete"
+            onsubmit="return confirm('删除后该会话的全部消息将无法恢复，确定删除吗？');">
+        <button class="conv-del" type="submit" title="删除会话">×</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="empty small">还没有会话记录<br>点击上方新建</p>
+    {% endfor %}
+  </div>
+</aside>
+
+<section class="chat-main" data-session="{{ current.session_id if current else '' }}">
+  <div class="chat-head">
+    <span>{{ agent_name }}</span>
+    {% if current %}
+    <span class="badge {{ current.status }}">{{ CONV_STATUS_LABELS.get(current.status, current.status) }}</span>
+    {% endif %}
+    {% if current and current.status in ('ai', 'closed') %}
+    <form method="post" action="/chat/handoff">
+      <input type="hidden" name="session_id" value="{{ current.session_id }}">
+      <button class="btn small" type="submit">转人工客服</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="chat-body" id="chatBody">
+    {% if not current %}
+    <div class="chat-tip">点击左侧「新建会话」，可咨询订单、物流与退换货问题</div>
+    {% elif not messages %}
+    <div class="chat-tip">{{ agent_welcome }}</div>
+    {% endif %}
+    {% for m in messages %}
+    <div class="bubble {{ 'me' if m.role == 'user' else ('merchant' if m.role == 'merchant' else 'ai') }}">
+      <div class="text">{{ m.content }}</div>
+      {% if m.sources %}<div class="refs">参考：{{ m.sources|join('、') }}</div>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <form class="chat-input" id="chatForm">
+    <input id="msgInput" autocomplete="off" placeholder="输入问题，例如：我的订单什么时候发货"
+           {% if not current %}disabled{% endif %}>
+    <button class="btn primary" type="submit" {% if not current %}disabled{% endif %}>发送</button>
+  </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const main = document.querySelector('.chat-main');
+  const sessionId = main.dataset.session;
+  const body = document.getElementById('chatBody');
+  const form = document.getElementById('chatForm');
+  const input = document.getElementById('msgInput');
+  const head = document.querySelector('.chat-head');
+  let lastId = {{ messages[-1].id if messages else 0 }};
+  let status = "{{ current.status if current else '' }}";
+
+  const STATUS_TEXT = {ai: 'AI 接待中', waiting: '等待人工', agent: '人工接待中', closed: '已结束'};
+
+  function scrollBottom() { body.scrollTop = body.scrollHeight; }
+  scrollBottom();
+
+  function addBubble(role, text, sources) {
+    const wrap = document.createElement('div');
+    wrap.className = 'bubble ' + (role === 'user' ? 'me' : (role === 'merchant' ? 'merchant' : 'ai'));
+    const t = document.createElement('div');
+    t.className = 'text';
+    t.textContent = text;
+    wrap.appendChild(t);
+    if (sources && sources.length) {
+      const r = document.createElement('div');
+      r.className = 'refs';
+      r.textContent = '参考：' + sources.join('、');
+      wrap.appendChild(r);
+    }
+    body.appendChild(wrap);
+    scrollBottom();
+  }
+
+  function addNote(text) {
+    const el = document.createElement('div');
+    el.className = 'chat-note';
+    el.textContent = text;
+    body.appendChild(el);
+    scrollBottom();
+  }
+
+  function renderStatus() {
+    const old = head.querySelector('.badge');
+    if (!old) return;
+    old.className = 'badge ' + status;
+    old.textContent = STATUS_TEXT[status] || status;
+  }
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text || !sessionId) return;
+    input.value = '';
+    addBubble('user', text, []);
+
+    const btn = form.querySelector('button');
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({session_id: sessionId, message: text})
+      });
+      const data = await res.json();
+      if (!res.ok) { addBubble('ai', data.detail || '发送失败，请稍后重试'); return; }
+      lastId = data.last_id || lastId;
+      status = data.status || status;
+      renderStatus();
+      if (data.answer) {
+        addBubble('assistant', data.answer, data.sources);
+      } else {
+        addNote('已发送，正在等待人工客服接入…');
+      }
+    } catch (err) {
+      addBubble('ai', '网络异常，请稍后重试');
+    } finally {
+      btn.disabled = false;
+      input.focus();
+    }
+  });
+
+  // 人工接待阶段：轮询接收商户回复
+  setInterval(async function () {
+    if (!sessionId || (status !== 'waiting' && status !== 'agent')) return;
+    try {
+      const res = await fetch('/api/chat/messages?session_id=' + encodeURIComponent(sessionId) + '&after_id=' + lastId);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.status !== status) {
+        const prev = status;
+        status = data.status;
+        renderStatus();
+        if (prev === 'waiting' && status === 'agent') addNote('人工客服已接入');
+        if (status === 'closed') addNote('本次服务已结束，有新问题可以直接继续发送');
+      }
+      data.messages.forEach(function (m) {
+        lastId = Math.max(lastId, m.id);
+        if (m.role !== 'user') addBubble(m.role, m.content, m.sources);
+      });
+    } catch (err) { /* 忽略单次轮询失败 */ }
+  }, 4000);
+})();
+</script>
+{% endblock %}

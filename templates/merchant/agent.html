@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Agent 客服 · 星选商城{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Agent 客服</h1>
+    <p class="muted small">配置店铺客服人设，并在线调试 AI 客服的回答与知识库检索效果</p>
+  </div>
+  <span class="badge {{ 'active' if graph_ready else 'disabled' }}">{{ 'Agent 已就绪' if graph_ready else 'Agent 未就绪' }}</span>
+</div>
+
+<div class="card">
+  <h2>客服配置</h2>
+  <p class="muted small">客服名称与欢迎语会展示在用户端会话中；补充说明会拼接到 AI 客服的系统提示词，新建会话后生效</p>
+  <form method="post" action="/merchant/agent">
+    <div class="form-row">
+      <div class="field">
+        <label>客服名称</label>
+        <input type="text" name="agent_name" maxlength="40" value="{{ shop.agent_name or '客服小星' }}">
+      </div>
+      <div class="field">
+        <label>欢迎语</label>
+        <input type="text" name="agent_welcome" maxlength="200" value="{{ shop.agent_welcome or '' }}"
+               placeholder="你好，我是本店客服，可以帮你查订单、看物流～">
+      </div>
+    </div>
+    <div class="field">
+      <label>补充人设 / 业务说明（可选）</label>
+      <textarea name="agent_prompt" rows="5"
+                placeholder="例如：本店主营数码配件，支持 7 天无理由退换；回答时语气亲切，主动引导用户提供订单号。">{{ shop.agent_prompt or '' }}</textarea>
+    </div>
+    <button class="btn primary" type="submit">保存配置</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>运行时参数</h2>
+  <p class="muted small">由服务端 config 决定，修改需调整环境变量或配置文件后重启</p>
+  <div class="grid cols-3" style="margin-top:12px">
+    <div class="kv"><span>对话模型</span><span>{{ runtime.llm_model }}</span></div>
+    <div class="kv"><span>温度</span><span>{{ runtime.llm_temperature }}</span></div>
+    <div class="kv"><span>向量模型</span><span>{{ runtime.embedding_model }}</span></div>
+    <div class="kv"><span>知识库集合</span><span>{{ runtime.collection }}</span></div>
+    <div class="kv"><span>召回数量 top_k</span><span>{{ runtime.top_k }}</span></div>
+    <div class="kv"><span>相似度阈值</span><span>{{ runtime.threshold }}</span></div>
+    <div class="kv"><span>短期记忆轮数</span><span>{{ runtime.memory_window }}</span></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>在线调试</h2>
+  <p class="muted small">调试请求不会写入用户会话。建议先用「检索测试」确认知识库命中，再用「问答测试」查看完整回答</p>
+  <div class="field" style="margin-top:12px">
+    <label>测试问题</label>
+    <input id="debugQ" type="text" placeholder="例如：星选 X1 耳机的保修期是多久？">
+  </div>
+  <div style="display:flex;gap:8px">
+    <button class="btn primary" type="button" id="btnAsk">问答测试</button>
+    <button class="btn" type="button" id="btnRetrieve">检索测试</button>
+  </div>
+  <div class="debug-out" id="debugOut">调试结果会显示在这里</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const q = document.getElementById('debugQ');
+  const out = document.getElementById('debugOut');
+  const btnAsk = document.getElementById('btnAsk');
+  const btnRetrieve = document.getElementById('btnRetrieve');
+
+  function show(text) {
+    out.textContent = text;
+  }
+
+  function renderAnswer(data) {
+    if (!data.ok) { show('调试失败：' + (data.error || '未知错误')); return; }
+    const lines = [];
+    lines.push('意图：' + (data.intent || '-'));
+    lines.push('耗时：' + data.elapsed_ms + ' ms');
+    lines.push('');
+    lines.push(data.answer || '（无回答）');
+    if (data.tool_result) {
+      lines.push('');
+      lines.push('工具结果：' + data.tool_result);
+    }
+    if (data.sources && data.sources.length) {
+      lines.push('');
+      lines.push('参考知识：' + data.sources.join('、'));
+    }
+    show(lines.join('\n'));
+  }
+
+  function renderDocs(data) {
+    if (!data.ok) { show('检索失败：' + (data.error || '未知错误')); return; }
+    out.textContent = '';
+    const head = document.createElement('div');
+    head.className = 'muted small';
+    head.textContent = '共召回 ' + data.docs.length + ' 条，耗时 ' + data.elapsed_ms + ' ms';
+    out.appendChild(head);
+    if (!data.docs.length) {
+      const tip = document.createElement('div');
+      tip.className = 'muted small';
+      tip.style.marginTop = '8px';
+      tip.textContent = '没有命中任何知识片段';
+      out.appendChild(tip);
+      return;
+    }
+    data.docs.forEach(function (doc) {
+      const card = document.createElement('div');
+      card.className = 'debug-doc';
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = (doc.source || '未知来源') + ' · 相似度 ' + doc.score;
+      const tag = document.createElement('span');
+      tag.className = 'badge ' + (doc.hit ? 'hit' : 'miss');
+      tag.textContent = doc.hit ? '命中' : '低于阈值';
+      tag.style.marginLeft = '8px';
+      meta.appendChild(tag);
+      const text = document.createElement('div');
+      text.textContent = doc.text;
+      card.appendChild(meta);
+      card.appendChild(text);
+      out.appendChild(card);
+    });
+  }
+
+  async function call(url, render) {
+    const question = q.value.trim();
+    if (!question) { show('请先输入测试问题'); q.focus(); return; }
+    btnAsk.disabled = true;
+    btnRetrieve.disabled = true;
+    show('请求中…');
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({question: question})
+      });
+      const data = await res.json();
+      if (!res.ok) { show('请求失败：' + (data.detail || res.status)); return; }
+      render(data);
+    } catch (err) {
+      show('网络异常：' + err.message);
+    } finally {
+      btnAsk.disabled = false;
+      btnRetrieve.disabled = false;
+    }
+  }
+
+  btnAsk.addEventListener('click', function () { call('/merchant/api/agent/test', renderAnswer); });
+  btnRetrieve.addEventListener('click', function () { call('/merchant/api/agent/retrieve', renderDocs); });
+})();
+</script>
+{% endblock %}

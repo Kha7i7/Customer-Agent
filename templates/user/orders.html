@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}我的订单 · 星选商城{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>我的订单</h1>
+    <p class="muted small">遇到订单或售后问题，可以在<a href="/chat">在线客服</a>里提供订单号咨询</p>
+  </div>
+</div>
+
+<div class="tabs">
+  {% for key, label in [('all', '全部'), ('pending', '待付款'), ('ship', '待发货'), ('receive', '待收货'), ('review', '待评价')] %}
+  <a class="tab {% if tab == key %}active{% endif %}" href="/orders?tab={{ key }}">
+    {{ label }}<span class="count">{{ counts[key] }}</span>
+  </a>
+  {% endfor %}
+</div>
+
+{% if orders %}
+  {% for o in orders %}
+  <div class="order-card">
+    <div class="order-head">
+      <span>订单号 <span class="no">{{ o.order_no }}</span></span>
+      <span>{{ o.created_at.strftime('%Y-%m-%d %H:%M') if o.created_at else '' }}</span>
+      <span class="right">
+        <span class="badge {{ o.status }}">{{ STATUS_LABELS.get(o.status, o.status) }}</span>
+        {% if o.refund_status %}<span class="badge pending">{{ o.refund_status }}</span>{% endif %}
+      </span>
+    </div>
+
+    {% for item in o.items %}
+    <div class="order-item">
+      <span>{{ item.product_name }} × {{ item.quantity }}</span>
+      <span>¥{{ '%.2f'|format(item.price * item.quantity) }}</span>
+    </div>
+    {% endfor %}
+
+    <div class="order-foot">
+      {% if o.status == 'pending' %}
+      <form class="inline-form" method="post" action="/orders/{{ o.id }}/pay">
+        <button class="btn primary small" type="submit">立即支付</button>
+      </form>
+      {% endif %}
+      {% if o.status in ('pending', 'paid') %}
+      <form class="inline-form" method="post" action="/orders/{{ o.id }}/cancel">
+        <button class="btn small" type="submit">取消订单</button>
+      </form>
+      {% endif %}
+      {% if o.status == 'shipped' %}
+      <form class="inline-form" method="post" action="/orders/{{ o.id }}/confirm">
+        <button class="btn primary small" type="submit">确认收货</button>
+      </form>
+      {% endif %}
+      {% if o.status == 'completed' and o.id not in reviewed %}
+      <form class="inline-form form-row review-form" method="post" action="/orders/{{ o.id }}/review">
+        <select name="rating">
+          <option value="5">商品 5 星</option>
+          <option value="4">商品 4 星</option>
+          <option value="3">商品 3 星</option>
+          <option value="2">商品 2 星</option>
+          <option value="1">商品 1 星</option>
+        </select>
+        <select name="service_rating">
+          <option value="5">客服 5 星</option>
+          <option value="4">客服 4 星</option>
+          <option value="3">客服 3 星</option>
+          <option value="2">客服 2 星</option>
+          <option value="1">客服 1 星</option>
+        </select>
+        <input type="text" name="content" placeholder="说说这次购物体验">
+        <button class="btn small" type="submit">提交评价</button>
+      </form>
+      {% endif %}
+      {% if o.status == 'completed' and o.id in reviewed %}
+      <span class="muted small">已评价</span>
+      {% endif %}
+      <a class="btn small" href="/chat">咨询客服</a>
+      <span class="total">实付 <b>¥{{ '%.2f'|format(o.total_amount) }}</b></span>
+    </div>
+
+    <div class="muted small order-meta">
+      收货：{{ o.receiver_name }} {{ o.receiver_phone }} · {{ o.address }}
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+<div class="card"><div class="empty">
+  {% if tab == 'all' %}还没有订单，去<a href="/products">选购商品</a>{% else %}该分类下暂无订单{% endif %}
+</div></div>
+{% endif %}
+{% endblock %}

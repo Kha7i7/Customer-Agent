@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}订单管理 · 星选商城{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>订单管理</h1>
+    <p class="muted small">{{ shop.name }} · 共 {{ counts.all }} 笔订单</p>
+  </div>
+</div>
+
+<div class="tabs">
+  {% for key, label in [('all', '全部'), ('ship', '待发货'), ('shipped', '待送达'), ('completed', '已完成'), ('refund', '退款中')] %}
+  <a class="tab {% if tab == key %}active{% endif %}" href="/merchant/orders?tab={{ key }}">
+    {{ label }}<span class="count">{{ counts[key] }}</span>
+  </a>
+  {% endfor %}
+</div>
+
+{% if orders %}
+  {% for o in orders %}
+  <div class="order-card">
+    <div class="order-head">
+      <span>订单号 <span class="no">{{ o.order_no }}</span></span>
+      <span>{{ o.created_at.strftime('%Y-%m-%d %H:%M') if o.created_at else '' }}</span>
+      <span class="right">
+        <span class="badge {{ o.status }}">{{ STATUS_LABELS.get(o.status, o.status) }}</span>
+        {% if o.refund_status %}<span class="badge pending">{{ o.refund_status }}</span>{% endif %}
+      </span>
+    </div>
+
+    {% for item in o.items %}
+    <div class="order-item">
+      <span>{{ item.product_name }} × {{ item.quantity }}</span>
+      <span>¥{{ '%.2f'|format(item.price * item.quantity) }}</span>
+    </div>
+    {% endfor %}
+
+    <div class="muted small order-meta">
+      收货：{{ o.receiver_name }} {{ o.receiver_phone }} · {{ o.address }}
+    </div>
+    {% if o.refund_reason %}
+    <div class="muted small order-meta refund">退款原因：{{ o.refund_reason }}</div>
+    {% endif %}
+
+    <div class="order-foot">
+      {% if o.status == 'paid' %}
+      <form class="inline-form" method="post" action="/merchant/orders/{{ o.id }}/ship">
+        <button class="btn primary small" type="submit">确认发货</button>
+      </form>
+      {% elif o.status == 'shipped' %}
+      <form class="inline-form" method="post" action="/merchant/orders/{{ o.id }}/deliver"
+            onsubmit="return confirm('确认该订单已送达？确认后订单将变为已完成，用户可发起评价。');">
+        <button class="btn primary small" type="submit">确认送达</button>
+      </form>
+      <span class="muted small">发货于 {{ o.shipped_at.strftime('%m-%d %H:%M') if o.shipped_at else '-' }}</span>
+      {% elif o.status == 'completed' %}
+      <span class="muted small">签收于 {{ o.delivered_at.strftime('%m-%d %H:%M') if o.delivered_at else '-' }}</span>
+      {% endif %}
+      {% if o.refund_status in ('退款审核中', '退货退款审核中') %}
+      <a class="btn small" href="/merchant/refunds">去处理退款</a>
+      {% endif %}
+      <span class="total">订单金额 <b>¥{{ '%.2f'|format(o.total_amount) }}</b></span>
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+<div class="card"><div class="empty">该分类下暂无订单</div></div>
+{% endif %}
+{% endblock %}

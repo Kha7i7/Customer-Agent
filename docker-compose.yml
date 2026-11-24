@@ -1,0 +1,88 @@
+services:
+  # ========== Milvus 依赖：元数据存储 ==========
+  etcd:
+    container_name: cs-etcd
+    image: quay.io/coreos/etcd:v3.5.5
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - etcd_data:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # ========== Milvus 依赖：对象存储 ==========
+  minio:
+    container_name: cs-minio
+    image: milvusdb/minio:RELEASE.2024-12-18T13-15-44Z
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # ========== Milvus 主服务 ==========
+  milvus:
+    container_name: cs-milvus
+    image: milvusdb/milvus:v3.0.5
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    volumes:
+      - milvus_data:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+    ports:
+      - "19530:19530"   # gRPC，Python SDK 用这个
+      - "9091:9091"     # 健康检查 / metrics
+    depends_on:
+      - etcd
+      - minio
+
+  # ========== PostgreSQL：会话与记忆 ==========
+  postgres:
+    container_name: cs-postgres
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${PG_USER:-csagent}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-csagent123}
+      POSTGRES_DB: ${PG_DB:-csagent}
+      TZ: Asia/Shanghai
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-csagent} -d ${PG_DB:-csagent}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  default:
+    name: cs-agent-net
+
+volumes:
+  etcd_data:
+  minio_data:
+  milvus_data:
+  pg_data:

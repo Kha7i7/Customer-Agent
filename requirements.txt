@@ -1,0 +1,26 @@
+# ---- Web 服务 ----
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+pydantic>=2.7,<3.0
+pydantic-settings>=2.4,<3.0
+jinja2>=3.1,<4.0
+python-multipart>=0.0.9
+itsdangerous>=2.2,<3.0
+
+# ---- 数据库（PostgreSQL 记忆存储）----
+sqlalchemy>=2.0,<3.0
+psycopg2-binary>=2.9,<3.0
+
+# ---- 向量库（Milvus）----
+pymilvus>=2.5,<4.0
+
+# ---- LLM / 向量模型 API（DeepSeek、硅基流动）----
+openai>=1.40,<3.0
+
+# ---- Agent 编排 ----
+langchain-core>=0.3,<2.0
+langchain-openai>=0.2,<2.0
+langgraph>=0.2,<2.0
+
+# ---- 本地 embedding（EMBEDDING_PROVIDER=local 时再安装，体积较大）----
+# sentence-transformers>=3.0,<6.0

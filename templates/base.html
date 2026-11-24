@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}星选商城 · 智能客服平台{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+{% set brand_url = ('/merchant/products' if user.role == 'merchant' else '/products') if user else '/' %}
+{% set path = request.url.path %}
+<header class="topbar">
+  <a class="brand" href="{{ brand_url }}"><span class="seal">星</span>星选<span>商城</span></a>
+  <nav>
+    {% if user %}
+      {% if user.role == 'customer' %}
+        <a href="/products" class="{{ 'active' if path.startswith('/products') }}">商品</a>
+        <a href="/cart" class="{{ 'active' if path.startswith('/cart') }}">购物车</a>
+        <a href="/orders" class="{{ 'active' if path.startswith('/orders') }}">我的订单</a>
+        <a href="/chat" class="{{ 'active' if path.startswith('/chat') }}">在线客服</a>
+        <a href="/profile" class="{{ 'active' if path.startswith('/profile') }}">个人中心</a>
+      {% elif user.role == 'merchant' %}
+        <a href="/merchant/products" class="{{ 'active' if path.startswith('/merchant/products') }}">商品管理</a>
+        <a href="/merchant/orders" class="{{ 'active' if path.startswith('/merchant/orders') }}">订单管理</a>
+        <a href="/merchant/service" class="{{ 'active' if path.startswith('/merchant/service') }}">售后处理</a>
+        <a href="/merchant/refunds" class="{{ 'active' if path.startswith('/merchant/refunds') }}">退款审核</a>
+        <a href="/merchant/agent" class="{{ 'active' if path.startswith('/merchant/agent') }}">Agent 客服</a>
+        <a href="/merchant/profile" class="{{ 'active' if path.startswith('/merchant/profile') }}">个人中心</a>
+      {% endif %}
+      {% set logout_url = '/merchant/logout' if user.role == 'merchant' else '/logout' %}
+      <span class="who">{{ user.username }} · {{ ROLE_LABELS.get(user.role, user.role) }}</span>
+      <a class="ghost" href="{{ logout_url }}">退出</a>
+    {% else %}
+      <a href="/login" class="{{ 'active' if path == '/login' }}">登录</a>
+      <a href="/register" class="{{ 'active' if path == '/register' }}">注册</a>
+    {% endif %}
+  </nav>
+</header>
+
+{% set msg = request.query_params.get('msg') %}
+{% if msg %}<div class="flash">{{ msg }}</div>{% endif %}
+
+<main class="{% block main_class %}container{% endblock %}">
+  {% block content %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>

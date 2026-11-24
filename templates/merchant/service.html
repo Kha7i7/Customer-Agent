@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}售后处理 · 星选商城{% endblock %}
+{% block main_class %}chat-shell{% endblock %}
+{% block content %}
+<aside class="chat-side">
+  <a class="conv-item conv-entry" href="/merchant/refunds">
+    <div class="conv-topic">退款申请{% if refund_count %}（{{ refund_count }}）{% endif %}</div>
+    <span class="badge {{ 'pending' if refund_count else 'closed' }}">{{ '待审核 ' ~ refund_count if refund_count else '暂无待审核' }}</span>
+  </a>
+  <div class="side-label">待接入（{{ waiting|length }}）</div>
+  <div class="conv-list">
+    {% for c in waiting %}
+    <a class="conv-item {% if current and c.id == current.id %}active{% endif %}" href="/merchant/service?session_id={{ c.session_id }}">
+      <div class="conv-topic">{{ c.topic or '用户请求人工' }}</div>
+      <span class="badge waiting">等待接入</span>
+    </a>
+    {% else %}
+    <p class="empty small">暂无等待接入的会话</p>
+    {% endfor %}
+  </div>
+
+  <div class="side-label">我的会话</div>
+  <div class="conv-list">
+    {% for c in mine %}
+    <a class="conv-item {% if current and c.id == current.id %}active{% endif %}" href="/merchant/service?session_id={{ c.session_id }}">
+      <div class="conv-topic">{{ c.topic or '会话' }}</div>
+      <span class="badge {{ c.status }}">{{ CONV_STATUS_LABELS.get(c.status, c.status) }}</span>
+    </a>
+    {% else %}
+    <p class="empty small">还没有接待记录</p>
+    {% endfor %}
+  </div>
+</aside>
+
+<section class="chat-main" data-session="{{ current.session_id if current else '' }}">
+  {% if current %}
+  <div class="chat-head">
+    <span>会话 #{{ current.id }}</span>
+    <span class="badge {{ current.status }}">{{ CONV_STATUS_LABELS.get(current.status, current.status) }}</span>
+    <span class="small muted">用户 ID {{ current.user_id }}</span>
+    <div class="chat-actions">
+      {% if current.status == 'waiting' %}
+      <form method="post" action="/merchant/service/{{ current.session_id }}/accept">
+        <button class="btn primary small" type="submit">接入会话</button>
+      </form>
+      {% endif %}
+      {% if current.status != 'closed' %}
+      <form method="post" action="/merchant/service/{{ current.session_id }}/close">
+        <button class="btn small danger" type="submit">结束会话</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="chat-body" id="chatBody">
+    {% for m in messages %}
+    <div class="bubble {{ 'me' if m.role == 'merchant' else 'ai' }}">
+      <div class="text">{{ m.content }}</div>
+    </div>
+    {% else %}
+    <div class="chat-tip">该会话还没有消息</div>
+    {% endfor %}
+  </div>
+
+  <form class="chat-input" method="post" action="/merchant/service/{{ current.session_id }}/reply">
+    <input name="content" autocomplete="off" placeholder="回复客户…" {% if current.status == 'closed' %}disabled{% endif %}>
+    <button class="btn primary" type="submit" {% if current.status == 'closed' %}disabled{% endif %}>发送</button>
+  </form>
+  {% else %}
+  <div class="chat-body">
+    <div class="chat-tip">从左侧选择一个会话开始接待<br>用户转人工后，会话会出现在「待接入」里</div>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+{% if current %}
+<script>
+(function () {
+  const main = document.querySelector('.chat-main');
+  const sessionId = main.dataset.session;
+  const body = document.getElementById('chatBody');
+  let lastId = {{ messages[-1].id if messages else 0 }};
+
+  body.scrollTop = body.scrollHeight;
+
+  setInterval(async function () {
+    if (!sessionId) return;
+    try {
+      const res = await fetch('/merchant/api/messages?session_id=' + encodeURIComponent(sessionId) + '&after_id=' + lastId);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.status === 'closed') return;
+      data.messages.forEach(function (m) {
+        lastId = Math.max(lastId, m.id);
+        if (m.role !== 'user') return;   // 商户自己的回复已在服务端渲染
+        const wrap = document.createElement('div');
+        wrap.className = 'bubble';
+        const t = document.createElement('div');
+        t.className = 'text';
+        t.textContent = m.content;
+        wrap.appendChild(t);
+        body.appendChild(wrap);
+        body.scrollTop = body.scrollHeight;
+      });
+    } catch (err) { /* 忽略 */ }
+  }, 4000);
+})();
+</script>
+{% endif %}
+{% endblock %}
