@@ -1,0 +1,142 @@
+# 生产环境编排：只有 Nginx 对外暴露 80，其余服务仅容器网络内可访问
+# 启动：docker compose -f docker-compose.prod.yml up -d --build
+
+services:
+  # ========== 业务应用 ==========
+  app:
+    build: .
+    image: cs-agent-app:latest
+    container_name: cs-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TZ: Asia/Shanghai
+      # 容器内用服务名访问，覆盖 .env 里的 localhost
+      MILVUS_URI: http://milvus:19530
+      DATABASE_URL: postgresql+psycopg2://${PG_USER:-csagent}:${PG_PASSWORD:-csagent123}@postgres:5432/${PG_DB:-csagent}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      milvus:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    networks:
+      - cs-agent-net
+
+  # ========== 反向代理：Cloudflare 回源入口 ==========
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: cs-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+    networks:
+      - cs-agent-net
+
+  # ========== Milvus 依赖：元数据存储 ==========
+  etcd:
+    container_name: cs-etcd
+    image: quay.io/coreos/etcd:v3.5.5
+    restart: unless-stopped
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - etcd_data:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - cs-agent-net
+
+  # ========== Milvus 依赖：对象存储 ==========
+  minio:
+    container_name: cs-minio
+    image: milvusdb/minio:RELEASE.2024-12-18T13-15-44Z
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio_data:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - cs-agent-net
+
+  # ========== Milvus 主服务（仅容器网络内访问）==========
+  milvus:
+    container_name: cs-milvus
+    image: milvusdb/milvus:v3.0.5
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    volumes:
+      - milvus_data:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 120s
+      timeout: 20s
+      retries: 5
+    depends_on:
+      - etcd
+      - minio
+    networks:
+      - cs-agent-net
+
+  # ========== PostgreSQL（仅容器网络内访问）==========
+  postgres:
+    container_name: cs-postgres
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PG_USER:-csagent}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-csagent123}
+      POSTGRES_DB: ${PG_DB:-csagent}
+      TZ: Asia/Shanghai
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-csagent} -d ${PG_DB:-csagent}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cs-agent-net
+
+networks:
+  cs-agent-net:
+    name: cs-agent-net
+
+volumes:
+  etcd_data:
+    name: csprod_etcd_data
+  minio_data:
+    name: csprod_minio_data
+  milvus_data:
+    name: csprod_milvus_data
+  pg_data:
+    name: csprod_pg_data
